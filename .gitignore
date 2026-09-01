@@ -1,0 +1,26 @@
+# 敏感信息（登录 Cookie，严禁提交）
+cnki_cookies.json
+
+# 运行时产物与抓取数据
+cnki_2010_2019/
+server.log
+.pid
+*.log
+
+# Python 缓存与虚拟环境
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# 探测/调试用的临时脚本
+_probe_*.py
+_probe_*.html
+1.py
+
+# 系统文件
+.DS_Store
+.idea/
+.vscode/
+.trae/

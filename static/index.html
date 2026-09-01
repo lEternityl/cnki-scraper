@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CNKI 抓取与检索系统</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1>CNKI 抓取与检索系统</h1>
+    <nav id="tabs">
+      <button class="tab active" data-tab="scrape">抓取任务</button>
+      <button class="tab" data-tab="records">文献检索</button>
+      <button class="tab" data-tab="advsearch">高级检索</button>
+      <button class="tab" data-tab="stats">统计可视化</button>
+      <button class="tab" data-tab="pdf">文献下载</button>
+      <button class="tab" data-tab="cookie">Cookie 管理</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- 抓取任务 -->
+    <section id="tab-scrape" class="panel active">
+      <div class="grid two">
+        <div class="card">
+          <h2>启动抓取</h2>
+          <label>期刊（每行一个，留空使用全部默认）</label>
+          <textarea id="scrape-journals" rows="6" placeholder="中国工业经济&#10;管理世界&#10;..."></textarea>
+          <div class="form-row">
+            <label>起始年<input id="scrape-start-year" type="text" value="2010" /></label>
+            <label>结束年<input id="scrape-end-year" type="text" value="2019" /></label>
+            <label>每页条数<input id="scrape-page-size" type="number" value="50" /></label>
+            <label>最大页数(0=不限)<input id="scrape-max-pages" type="number" value="0" /></label>
+          </div>
+          <div class="form-row">
+            <label>最小间隔(秒)<input id="scrape-min-sleep" type="number" step="0.1" value="1.2" /></label>
+            <label>最大间隔(秒)<input id="scrape-max-sleep" type="number" step="0.1" value="2.2" /></label>
+            <label class="check"><input id="scrape-fresh" type="checkbox" /> 清空已有进度</label>
+          </div>
+          <div class="actions">
+            <button id="scrape-start-btn" class="primary">启动</button>
+            <button id="scrape-stop-btn" class="danger">停止</button>
+            <span id="scrape-status-pill" class="pill idle">空闲</span>
+          </div>
+          <div class="status-grid" id="scrape-status"></div>
+        </div>
+        <div class="card">
+          <h2>实时日志</h2>
+          <pre id="scrape-log" class="log"></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- 文献检索 -->
+    <section id="tab-records" class="panel">
+      <div class="card">
+        <div class="form-row">
+          <input id="rec-keyword" type="text" placeholder="关键词(在篇名/作者/摘要/关键词中匹配)" />
+          <select id="rec-journal"><option value="">全部期刊</option></select>
+          <input id="rec-author" type="text" placeholder="作者" />
+          <select id="rec-year"><option value="">全部年份</option></select>
+          <select id="rec-page-size">
+            <option>10</option><option selected>20</option><option>50</option><option>100</option>
+          </select>
+          <button id="rec-search-btn" class="primary">搜索</button>
+        </div>
+        <p class="muted" id="rec-meta"></p>
+        <div class="table-wrap">
+          <table id="rec-table">
+            <thead><tr><th>篇名</th><th>作者</th><th>刊名</th><th>发表时间</th><th>关键词</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="pagination" id="rec-pagination"></div>
+      </div>
+    </section>
+
+    <!-- 高级检索（CNKI 实时） -->
+    <section id="tab-advsearch" class="panel">
+      <div class="card">
+        <h2>高级检索 <span class="muted">（与 kns.cnki.net/kns8s/AdvSearch 一致，实时调用 CNKI）</span></h2>
+        <div id="adv-conditions"></div>
+        <div class="actions">
+          <button id="adv-add-btn" class="ghost">+ 添加条件</button>
+          <button id="adv-search-btn" class="primary">检索</button>
+          <button id="adv-collect-btn" class="primary">采到本地</button>
+        </div>
+        <div class="form-row" style="margin-top:12px;">
+          <label>起始年<input id="adv-start-year" type="text" placeholder="如 2010" /></label>
+          <label>结束年<input id="adv-end-year" type="text" placeholder="如 2019" /></label>
+          <label>每页条数<input id="adv-page-size" type="number" value="20" /></label>
+          <span class="muted" style="align-self:center;">来源类别：</span>
+          <div id="adv-src-cats" class="checkbox-group"></div>
+        </div>
+        <p class="muted" id="adv-meta"></p>
+      </div>
+      <div class="card">
+        <div class="table-wrap">
+          <table id="adv-table">
+            <thead><tr><th>篇名</th><th>作者</th><th>刊名</th><th>发表时间</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="pagination" id="adv-pagination"></div>
+      </div>
+      <div class="card">
+        <h3>采集任务 <span id="adv-collect-pill" class="pill idle">空闲</span></h3>
+        <div class="form-row">
+          <label>最大页数(0=不限)<input id="adv-collect-max-pages" type="number" value="0" /></label>
+          <label>最小间隔(秒)<input id="adv-collect-min-sleep" type="number" step="0.1" value="1.2" /></label>
+          <label>最大间隔(秒)<input id="adv-collect-max-sleep" type="number" step="0.1" value="2.2" /></label>
+          <button id="adv-collect-stop-btn" class="danger">停止采集</button>
+        </div>
+        <div class="status-grid" id="adv-collect-status"></div>
+        <pre id="adv-collect-log" class="log"></pre>
+      </div>
+    </section>
+
+    <!-- 统计可视化 -->
+    <section id="tab-stats" class="panel">
+      <div class="card">
+        <h2>总体统计 <span id="stats-total" class="muted"></span></h2>
+        <button id="stats-refresh-btn" class="primary">刷新统计</button>
+      </div>
+      <div class="grid two">
+        <div class="card">
+          <h3>按期刊（Top 20）</h3>
+          <div id="stats-journal" class="bars"></div>
+        </div>
+        <div class="card">
+          <h3>按年份</h3>
+          <div id="stats-year" class="bars"></div>
+        </div>
+      </div>
+      <div class="grid two">
+        <div class="card">
+          <h3>高产作者（Top 20）</h3>
+          <div id="stats-author" class="bars"></div>
+        </div>
+        <div class="card">
+          <h3>高频关键词（Top 20）</h3>
+          <div id="stats-keyword" class="bars"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- PDF 下载 -->
+    <section id="tab-pdf" class="panel">
+      <div class="grid two">
+        <div class="card">
+          <h2>启动文献下载 <span class="muted">（CAJ/PDF 全文）</span></h2>
+          <p class="muted">在已抓取记录中筛选文献批量下载全文。优先用 grid 里的下载链接（bar/download），多为 CAJ 格式；老记录无下载链接则回退详情页（可能触发验证码）。留空 = 全部。</p>
+          <div class="form-row">
+            <input id="pdf-keyword" type="text" placeholder="关键词" />
+            <select id="pdf-journal"><option value="">全部期刊</option></select>
+            <input id="pdf-author" type="text" placeholder="作者" />
+            <select id="pdf-year"><option value="">全部年份</option></select>
+          </div>
+          <div class="form-row">
+            <label>最小间隔(秒)<input id="pdf-min-sleep" type="number" step="0.1" value="0.6" /></label>
+            <label>最大间隔(秒)<input id="pdf-max-sleep" type="number" step="0.1" value="1.5" /></label>
+            <label class="check"><input id="pdf-overwrite" type="checkbox" /> 覆盖已存在</label>
+          </div>
+          <div class="actions">
+            <button id="pdf-start-btn" class="primary">启动下载</button>
+            <button id="pdf-stop-btn" class="danger">停止</button>
+            <span id="pdf-status-pill" class="pill idle">空闲</span>
+          </div>
+          <div class="status-grid" id="pdf-status"></div>
+        </div>
+        <div class="card">
+          <h2>实时日志</h2>
+          <pre id="pdf-log" class="log"></pre>
+        </div>
+      </div>
+      <div class="card">
+        <h2>已下载文件 <button id="pdf-files-refresh" class="ghost">刷新</button></h2>
+        <div id="pdf-files"></div>
+      </div>
+    </section>
+
+    <!-- Cookie 管理 -->
+    <section id="tab-cookie" class="panel">
+      <div class="card">
+        <h2>Cookie 管理</h2>
+        <div id="cookie-status" class="status-grid"></div>
+        <div class="actions">
+          <input id="cookie-file" type="file" accept=".json" />
+          <button id="cookie-upload-btn" class="primary">上传</button>
+          <button id="cookie-delete-btn" class="danger">删除</button>
+        </div>
+        <p class="muted">把浏览器导出的 cnki_cookies.json 上传到此；后端会自动用于抓取与 PDF 下载。</p>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
