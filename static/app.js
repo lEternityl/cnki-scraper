@@ -164,6 +164,42 @@ function updateSelectedCount() {
   $("#rec-selected-count").textContent = recSelected.size;
 }
 
+// 生成单条记录的 GB/T 7714 引文（与后端 export_gbt7714 逻辑一致）
+function gbt7714Citation(r) {
+  const docType = (r["文献类型"] || "J").split("/")[0] || "J";
+  const pub = (r["发表时间"] || "").trim();
+  const pubPart = (docType === "N" && pub) ? pub : ((pub.match(/\d{4}/) || [pub])[0]);
+  const authors = (r["作者"] || "").trim();
+  const authorsPart = authors ? authors.replace(/;\s*/g, ",") : "";
+  const pieces = [];
+  if (authorsPart) pieces.push(authorsPart + ".");
+  pieces.push((r["篇名"] || "").trim() + `[${docType}].`);
+  const journal = (r["刊名"] || "").trim();
+  if (journal) pieces.push(pubPart ? `${journal},${pubPart}.` : `${journal}.`);
+  else if (pubPart) pieces.push(`${pubPart}.`);
+  const link = (r["链接"] || "").trim();
+  if (link) pieces.push(`${link}.`);
+  return pieces.join(" ");
+}
+
+async function copyToClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch (e) {
+    // 回退方案
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand("copy");
+    ta.remove();
+    return ok;
+  }
+}
+
 async function searchRecords() {
   const params = new URLSearchParams({
     page: recPage,
@@ -192,12 +228,13 @@ async function searchRecords() {
         <td>${esc(r["刊名"] || "")}</td>
         <td>${esc(r["发表时间"] || "")}</td>
         <td>${esc(docType)}</td>
-        <td class="t-num">-</td>
-        <td class="t-num">-</td>
-        <td><button class="ghost rec-dl-btn" data-idx="${idx}">下载PDF</button></td>`;
+        <td>
+          <button class="ghost rec-dl-btn" data-idx="${idx}">下载PDF</button>
+          <button class="ghost rec-cite-btn" title="复制 GB/T 7714 格式引文">复制引文</button>
+        </td>`;
       const detail = document.createElement("tr");
       detail.className = "row-detail";
-      detail.innerHTML = `<td colspan="9">
+      detail.innerHTML = `<td colspan="7">
         <div><b>检索期刊：</b>${esc(r["检索期刊"] || "-")}</div>
         <div><b>关键词：</b>${esc(r["关键词"] || "-")}</div>
         <div><b>摘要：</b>${esc(r["摘要"] || "-")}</div>
@@ -212,6 +249,11 @@ async function searchRecords() {
       tr.querySelector(".rec-dl-btn").addEventListener("click", (ev) => {
         ev.stopPropagation();
         startPdfDownload([idx]);
+      });
+      tr.querySelector(".rec-cite-btn").addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const ok = await copyToClipboard(gbt7714Citation(r));
+        toast(ok ? "已复制 GB/T 7714 引文" : "复制失败", ok ? "ok" : "error");
       });
       tr.addEventListener("click", () => {
         tr.classList.toggle("expanded");

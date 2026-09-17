@@ -164,8 +164,7 @@ thead th {
 }
 tbody td { padding: 8px 10px; border-bottom: 1px solid #eef0f3; vertical-align: top; }
 td.t-title { max-width: 380px; }
-td.t-num { text-align: center; color: #6b7280; }
-.rec-dl-btn { padding: 2px 10px; font-size: 12px; }
+.rec-dl-btn, .rec-cite-btn { padding: 2px 10px; font-size: 12px; }
 tbody tr { cursor: pointer; }
 tbody tr:hover { background: #f9fafb; }
 tbody tr.expanded { background: #f0f7ff; }
