@@ -117,7 +117,7 @@ def search_records(
     year = (year or "").strip()
 
     filtered: list[dict[str, str]] = []
-    for rec in records:
+    for i, rec in enumerate(records):
         if journal and journal != rec.get("检索期刊") and journal != rec.get("刊名"):
             continue
         if year and not (rec.get("发表时间", "") or "").startswith(year):
@@ -131,7 +131,9 @@ def search_records(
             ).lower()
             if keyword.lower() not in hay:
                 continue
-        filtered.append(rec)
+        r = dict(rec)
+        r["_idx"] = i  # 在全量记录中的位置，供按条下载（/api/pdf/start indices）使用
+        filtered.append(r)
 
     total = len(filtered)
     start = (page - 1) * page_size

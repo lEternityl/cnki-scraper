@@ -530,6 +530,25 @@ async def api_cookie_delete() -> Dict[str, Any]:
     return storage.cookie_status()
 
 
+class CookieTextIn(BaseModel):
+    text: str
+
+
+@app.post("/api/cookie/text")
+async def api_cookie_save_text(body: CookieTextIn) -> Dict[str, Any]:
+    """直接粘贴 Cookie JSON 文本保存。"""
+    if not body.text.strip():
+        raise HTTPException(status_code=400, detail="粘贴内容为空")
+    try:
+        count = storage.save_cookie_upload(body.text)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail=f"非法 JSON: {exc}")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    search_cache.invalidate_all()
+    return {"ok": True, "count": count, **storage.cookie_status()}
+
+
 @app.get("/api/scrape/state")
 async def api_scrape_state() -> Dict[str, Any]:
     return storage.load_state()
@@ -696,7 +715,7 @@ async def api_pdf_logs() -> StreamingResponse:
 
 @app.get("/api/pdf/files")
 async def api_pdf_files() -> Dict[str, Any]:
-    return {"items": storage.list_pdfs()}
+    return {"items": [f for f in storage.list_pdfs() if f["name"].lower().endswith(".pdf")]}
 
 
 @app.get("/api/pdf/files/{name}")

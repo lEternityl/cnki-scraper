@@ -49,10 +49,8 @@ $$(".tab").forEach(btn => {
     $$(".panel").forEach(p => p.classList.remove("active"));
     $("#tab-" + btn.dataset.tab).classList.add("active");
     const tab = btn.dataset.tab;
-    if (tab === "records") refreshRecordFilters();
+    if (tab === "records") { refreshRecordFilters(); refreshPdfFiles(); }
     if (tab === "advsearch") refreshAdvMeta();
-    if (tab === "stats") refreshStats();
-    if (tab === "pdf") refreshPdfFilters();
     if (tab === "cookie") refreshCookieStatus();
   });
 });
@@ -137,6 +135,12 @@ $("#scrape-stop-btn").addEventListener("click", async () => {
 
 // ===================== 文献检索 ==========================================
 let recPage = 1;
+const recSelected = new Set();  // 勾选记录的 _idx 集合（跨页保留）
+const DOC_TYPE_MAP = {
+  "J": "学术期刊", "J/OL": "学术期刊(网络首发)", "N": "报纸",
+  "D": "学位论文", "C": "会议", "M": "图书", "R": "报告",
+};
+
 async function refreshRecordFilters() {
   try {
     const [journals, stats] = await Promise.all([
@@ -144,10 +148,8 @@ async function refreshRecordFilters() {
       apiGet("/api/records/stats"),
     ]);
     fillSelect($("#rec-journal"), journals.in_records);
-    fillSelect($("#pdf-journal"), journals.in_records);
     const years = stats.by_year.map(y => y.year);
     fillSelect($("#rec-year"), years);
-    fillSelect($("#pdf-year"), years);
     if (!$("#rec-table tbody").children.length) searchRecords();
   } catch (e) { console.warn(e); }
 }
@@ -156,6 +158,10 @@ function fillSelect(sel, items) {
   sel.innerHTML = `<option value="">全部</option>` +
     items.map(i => `<option value="${esc(i)}">${esc(i)}</option>`).join("");
   if (cur) sel.value = cur;
+}
+
+function updateSelectedCount() {
+  $("#rec-selected-count").textContent = recSelected.size;
 }
 
 async function searchRecords() {
@@ -175,21 +181,38 @@ async function searchRecords() {
     const data = await apiGet("/api/records?" + params);
     const tbody = $("#rec-table tbody");
     tbody.innerHTML = "";
-    data.items.forEach((r, i) => {
+    data.items.forEach((r) => {
+      const idx = r["_idx"];
+      const docType = DOC_TYPE_MAP[r["文献类型"]] || (r["文献类型"] ? r["文献类型"] : "学术期刊");
       const tr = document.createElement("tr");
       tr.innerHTML = `
-        <td>${esc(r["篇名"] || "")}</td>
+        <td><input type="checkbox" class="rec-check" data-idx="${idx}" ${recSelected.has(idx) ? "checked" : ""} /></td>
+        <td class="t-title">${esc(r["篇名"] || "")}</td>
         <td>${esc(r["作者"] || "")}</td>
         <td>${esc(r["刊名"] || "")}</td>
         <td>${esc(r["发表时间"] || "")}</td>
-        <td>${esc(r["关键词"] || "")}</td>`;
+        <td>${esc(docType)}</td>
+        <td class="t-num">-</td>
+        <td class="t-num">-</td>
+        <td><button class="ghost rec-dl-btn" data-idx="${idx}">下载PDF</button></td>`;
       const detail = document.createElement("tr");
       detail.className = "row-detail";
-      detail.innerHTML = `<td colspan="5">
+      detail.innerHTML = `<td colspan="9">
         <div><b>检索期刊：</b>${esc(r["检索期刊"] || "-")}</div>
+        <div><b>关键词：</b>${esc(r["关键词"] || "-")}</div>
         <div><b>摘要：</b>${esc(r["摘要"] || "-")}</div>
         ${r["链接"] ? `<div><a class="link" href="${esc(r["链接"])}" target="_blank">${esc(r["链接"])}</a></div>` : ""}
       </td>`;
+      // 勾选与操作按钮不触发行展开
+      tr.querySelector(".rec-check").addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        if (ev.target.checked) recSelected.add(idx); else recSelected.delete(idx);
+        updateSelectedCount();
+      });
+      tr.querySelector(".rec-dl-btn").addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        startPdfDownload([idx]);
+      });
       tr.addEventListener("click", () => {
         tr.classList.toggle("expanded");
         detail.classList.toggle("show");
@@ -197,10 +220,29 @@ async function searchRecords() {
       tbody.appendChild(tr);
       tbody.appendChild(detail);
     });
-    $("#rec-meta").textContent = `共 ${data.total} 条，第 ${data.page}/${Math.ceil(data.total / data.page_size) || 1} 页`;
+    // 本页全选状态
+    const checks = $$("#rec-table .rec-check");
+    $("#rec-check-all").checked = checks.length > 0 && checks.every(c => c.checked);
+    $("#rec-meta").textContent = `共 ${data.total} 条，第 ${data.page}/${Math.ceil(data.total / data.page_size) || 1} 页，已勾选 ${recSelected.size} 条`;
     renderPagination(data.total, data.page, data.page_size);
   } catch (e) { toast(e.message, "error"); }
 }
+
+$("#rec-check-all").addEventListener("click", (ev) => {
+  const on = ev.target.checked;
+  $$("#rec-table .rec-check").forEach(c => {
+    c.checked = on;
+    const idx = parseInt(c.dataset.idx, 10);
+    if (on) recSelected.add(idx); else recSelected.delete(idx);
+  });
+  updateSelectedCount();
+  $("#rec-meta").textContent = $("#rec-meta").textContent.replace(/已勾选 \d+ 条/, `已勾选 ${recSelected.size} 条`);
+});
+
+$("#rec-download-selected-btn").addEventListener("click", () => {
+  if (!recSelected.size) { toast("请先勾选要下载的文献", "error"); return; }
+  startPdfDownload(Array.from(recSelected));
+});
 
 function renderPagination(total, page, size) {
   const pages = Math.ceil(total / size) || 1;
@@ -426,31 +468,7 @@ async function refreshAdvCollectStatus() {
 }
 setInterval(refreshAdvCollectStatus, 5000);
 
-// ===================== 统计可视化 =======================================
-async function refreshStats() {
-  try {
-    const s = await apiGet("/api/records/stats");
-    $("#stats-total").textContent = `（共 ${s.total} 条）`;
-    renderBars("#stats-journal", s.by_journal);
-    renderBars("#stats-year", s.by_year.map(y => ({ name: y.year, count: y.count })));
-    renderBars("#stats-author", s.by_author);
-    renderBars("#stats-keyword", s.by_keyword);
-  } catch (e) { toast(e.message, "error"); }
-}
-function renderBars(sel, items) {
-  const el = $(sel);
-  if (!items || !items.length) { el.innerHTML = `<div class="muted">暂无数据</div>`; return; }
-  const max = Math.max(...items.map(i => i.count));
-  el.innerHTML = items.slice(0, 20).map(i => `
-    <div class="bar-row">
-      <div class="name" title="${esc(i.name)}">${esc(i.name)}</div>
-      <div class="track"><div class="fill" style="width:${(i.count / max * 100).toFixed(1)}%"></div></div>
-      <div class="count">${i.count}</div>
-    </div>`).join("");
-}
-$("#stats-refresh-btn").addEventListener("click", refreshStats);
-
-// ===================== PDF 下载 ==========================================
+// ===================== PDF 下载（并入文献检索页）=========================
 let pdfES = null;
 async function refreshPdfStatus() {
   try {
@@ -471,30 +489,11 @@ async function refreshPdfStatus() {
     else setPill($("#pdf-status-pill"), "idle", "空闲");
   } catch (e) { console.warn(e); }
 }
-async function refreshPdfFilters() {
-  try {
-    const journals = await apiGet("/api/journals");
-    fillSelect($("#pdf-journal"), journals.in_records);
-    const stats = await apiGet("/api/records/stats");
-    fillSelect($("#pdf-year"), stats.by_year.map(y => y.year));
-    refreshPdfStatus();
-    refreshPdfFiles();
-  } catch (e) { console.warn(e); }
-}
 
-$("#pdf-start-btn").addEventListener("click", async () => {
-  const body = {
-    keyword: $("#pdf-keyword").value.trim() || null,
-    journal: $("#pdf-journal").value || null,
-    author: $("#pdf-author").value.trim() || null,
-    year: $("#pdf-year").value || null,
-    overwrite: $("#pdf-overwrite").checked,
-    min_sleep: parseFloat($("#pdf-min-sleep").value) || 0.6,
-    max_sleep: parseFloat($("#pdf-max-sleep").value) || 1.5,
-  };
+async function startPdfDownload(indices) {
   try {
-    await apiPost("/api/pdf/start", body);
-    toast("PDF 下载已启动", "ok");
+    const res = await apiPost("/api/pdf/start", { indices, overwrite: false });
+    toast(`PDF 下载已启动：${res.selected} 篇`, "ok");
     $("#pdf-log").textContent = "";
     setPill($("#pdf-status-pill"), "running", "运行中");
     if (pdfES) pdfES.close();
@@ -503,7 +502,8 @@ $("#pdf-start-btn").addEventListener("click", async () => {
       refreshPdfFiles();
     });
   } catch (e) { toast("启动失败: " + e.message, "error"); }
-});
+}
+
 $("#pdf-stop-btn").addEventListener("click", async () => {
   try { await apiPost("/api/pdf/stop"); toast("已请求停止", "ok"); }
   catch (e) { toast(e.message, "error"); }
@@ -513,7 +513,7 @@ async function refreshPdfFiles() {
   try {
     const data = await apiGet("/api/pdf/files");
     const el = $("#pdf-files");
-    if (!data.items.length) { el.innerHTML = `<div class="muted">暂无已下载文件</div>`; return; }
+    if (!data.items.length) { el.innerHTML = `<div class="muted">暂无已下载 PDF</div>`; return; }
     el.innerHTML = data.items.map(f => {
       const sizeKB = (f.size / 1024).toFixed(0);
       const date = new Date(f.mtime * 1000).toLocaleString();
@@ -556,6 +556,17 @@ $("#cookie-upload-btn").addEventListener("click", async () => {
     refreshCookieStatus();
   } catch (e) { toast(e.message, "error"); }
 });
+$("#cookie-text-btn").addEventListener("click", async () => {
+  const text = $("#cookie-text").value.trim();
+  if (!text) { toast("请先粘贴 Cookie JSON 文本", "error"); return; }
+  try {
+    const res = await apiPost("/api/cookie/text", { text });
+    toast(`已保存 ${res.count} 条 Cookie`, "ok");
+    $("#cookie-text").value = "";
+    refreshCookieStatus();
+  } catch (e) { toast("保存失败: " + e.message, "error"); }
+});
+
 $("#cookie-delete-btn").addEventListener("click", async () => {
   if (!confirm("确认删除 Cookie 文件？")) return;
   try {
