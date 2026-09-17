@@ -223,6 +223,19 @@ function renderPagination(total, page, size) {
 
 $("#rec-search-btn").addEventListener("click", () => { recPage = 1; searchRecords(); });
 
+$("#rec-export-btn").addEventListener("click", () => {
+  const params = new URLSearchParams();
+  const kw = $("#rec-keyword").value.trim();
+  const jr = $("#rec-journal").value;
+  const au = $("#rec-author").value.trim();
+  const yr = $("#rec-year").value;
+  if (kw) params.set("keyword", kw);
+  if (jr) params.set("journal", jr);
+  if (au) params.set("author", au);
+  if (yr) params.set("year", yr);
+  window.open("/api/records/export?" + params.toString(), "_blank");
+});
+
 // ===================== 题录导入 ==========================================
 $("#import-btn").addEventListener("click", async () => {
   const file = $("#import-file").files[0];

@@ -41,13 +41,14 @@ from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.responses import (
     FileResponse,
     HTMLResponse,
+    Response,
     StreamingResponse,
 )
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import storage
-from .importer import import_records
+from .importer import export_gbt7714, import_records
 from .scraper import (
     ScrapeParams, Scraper, BlockedError,
     SearchCollectParams, SearchCollector,
@@ -304,6 +305,27 @@ async def api_records(
 async def api_records_stats() -> Dict[str, Any]:
     records = storage.load_all_records()
     return storage.stats_aggregate(records)
+
+
+@app.get("/api/records/export")
+async def api_records_export(
+    keyword: Optional[str] = None,
+    journal: Optional[str] = None,
+    author: Optional[str] = None,
+    year: Optional[str] = None,
+) -> Response:
+    """按检索条件导出本地记录为 GB/T 7714 引文文本。"""
+    records = storage.load_all_records()
+    matched, _total = storage.search_records(
+        records, keyword=keyword, journal=journal, author=author,
+        year=year, page=1, page_size=len(records) or 1,
+    )
+    text = export_gbt7714(matched)
+    return Response(
+        content=text.encode("utf-8"),
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=records_gbt7714.txt"},
+    )
 
 
 @app.post("/api/records/import")

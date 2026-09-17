@@ -65,6 +65,7 @@
             <option>10</option><option selected>20</option><option>50</option><option>100</option>
           </select>
           <button id="rec-search-btn" class="primary">搜索</button>
+          <button id="rec-export-btn" title="按当前检索条件导出 GB/T 7714 格式引文">导出 GB/T 7714</button>
         </div>
         <p class="muted" id="rec-meta"></p>
         <div class="table-wrap">
@@ -125,9 +126,9 @@
         <p class="muted">
           本系统检索范围固定为「学术期刊」库；如需总库（含学位论文、会议论文等）的文献，
           可在 <a class="link" href="https://kns.cnki.net" target="_blank">知网官网</a>
-          检索后勾选目标文献 → 导出 → 选择 <b>EndNote / Refworks / 自定义</b> 格式下载 txt 文件，
-          再上传到此处。导入的题录会自动去重（按篇名+刊名）并合并到本地记录，
-          之后可在「文献检索」「统计可视化」中使用。
+          检索后勾选目标文献 → 导出 → 选择 <b>EndNote / Refworks / GB/T 7714（导出参考文献）/ 自定义</b>
+          格式下载 txt 文件，再上传到此处。导入的题录会自动去重（按篇名+刊名）并合并到本地记录，
+          之后可在「文献检索」中检索，并用「导出 GB/T 7714」按钮导出引文。
         </p>
         <div class="actions">
           <input id="import-file" type="file" accept=".txt,.enw,.ciw,.ris" />

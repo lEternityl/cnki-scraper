@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import html
 import re
 from typing import Any
 
@@ -24,7 +25,8 @@ def _parse_endnote(text: str) -> list[dict[str, str]]:
     """EndNote 格式：%标签 值，同标签多行合并。"""
     field_map = {
         "T": "篇名", "A": "作者", "J": "刊名", "D": "发表时间",
-        "K": "关键词", "X": "摘要", "U": "链接", "URL": "链接",
+        "8": "发表时间",  # 报纸类记录的日期字段（%D 缺失时使用）
+        "K": "关键词", "X": "摘要", "U": "链接",
     }
     records: list[dict[str, list[str]]] = []
     current: dict[str, list[str]] | None = None
@@ -53,14 +55,16 @@ def _parse_endnote(text: str) -> list[dict[str, str]]:
 
     out: list[dict[str, str]] = []
     for rec in records:
+        # %D（年份）与 %8（日期）都映射到发表时间，取第一个非空值
+        pub_parts = [p for p in rec.get("发表时间", []) if p.strip()]
         out.append({
             "篇名": _clean(" ".join(rec.get("篇名", []))),
             "作者": normalize_people(_clean("; ".join(rec.get("作者", [])))),
             "刊名": _clean(" ".join(rec.get("刊名", []))),
-            "发表时间": _clean(" ".join(rec.get("发表时间", []))),
+            "发表时间": _clean(pub_parts[0]) if pub_parts else "",
             "关键词": normalize_terms(_clean("; ".join(rec.get("关键词", [])))),
             "摘要": _clean(" ".join(rec.get("摘要", []))),
-            "链接": _clean(" ".join(rec.get("链接", []))),
+            "链接": html.unescape(_clean(" ".join(rec.get("链接", [])))),
         })
     return [r for r in out if r["篇名"]]
 
@@ -167,12 +171,81 @@ def _parse_custom(text: str) -> list[dict[str, str]]:
     return [r for r in result if r["篇名"]]
 
 
+def _parse_gbt7714(text: str) -> list[dict[str, str]]:
+    """GB/T 7714 格式（知网「导出参考文献」格式），每行一条：
+    [1]作者. 篇名[J].刊名,年,(期):页码.  支持 [J]/[N]/[D]/[C]/[J/OL]/[EB/OL] 等类型。
+    """
+    out: list[dict[str, str]] = []
+    line_re = re.compile(r"^\[(\d+)\]\s*(.+)$")
+    for line in text.splitlines():
+        stripped = line.strip()
+        m = line_re.match(stripped)
+        if not m:
+            continue
+        body = m.group(2)
+
+        # 拆作者：第一个 "." 之前且不含 "[" 的段为作者；若第一个 "[" 前没有 "."，则视为无作者
+        dot_pos = body.find(".")
+        bracket_pos = body.find("[")
+        if dot_pos != -1 and (bracket_pos == -1 or dot_pos < bracket_pos):
+            authors_raw = body[:dot_pos].strip()
+            rest = body[dot_pos + 1:].lstrip()
+        else:
+            authors_raw = ""
+            rest = body
+
+        # 拆篇名与文献类型：篇名[类型].后续
+        m2 = re.match(r"^(.*?)\s*\[([A-Z]+(?:/[A-Z]+)?)\]\s*\.?\s*(.*)$", rest)
+        if not m2:
+            continue
+        title, doc_type, tail = m2.group(1).strip(), m2.group(2), m2.group(3)
+
+        # 后续部分：刊名,年,(期):页码 / 报纸,日期(版次) / 大学,年 / //会议.论文集.年:页码
+        journal = ""
+        pub = ""
+        link = ""
+        tail_wo_link = re.sub(r"https?://\S+", "", tail).strip()
+        m_link = re.search(r"(https?://\S+?)[\s.]*$", tail)
+        if m_link:
+            link = m_link.group(1).rstrip(".")
+
+        if tail_wo_link.startswith("//"):  # 会议论文
+            seg = tail_wo_link[2:].split(".")
+            journal = seg[1].strip() if len(seg) > 1 else seg[0].strip()
+        else:
+            # 刊名 = 首个逗号前（或全段）；发表时间取首个年/日期
+            journal = tail_wo_link.split(",")[0].strip().rstrip(".")
+        m_date = re.search(r"(\d{4}(?:-\d{2}-\d{2})?)", tail_wo_link)
+        if m_date:
+            pub = m_date.group(1)
+
+        # 作者规范化："张三,李四,等" → "张三; 李四; 等"
+        authors = ""
+        if authors_raw:
+            parts = [p.strip() for p in authors_raw.split(",") if p.strip()]
+            authors = normalize_people("; ".join(parts))
+
+        out.append({
+            "篇名": _clean(title),
+            "作者": authors,
+            "刊名": _clean(journal),
+            "发表时间": _clean(pub),
+            "关键词": "",
+            "摘要": "",
+            "链接": html.unescape(link),
+            "文献类型": doc_type,
+        })
+    return [r for r in out if r["篇名"]]
+
+
 def parse_records(text: str) -> list[dict[str, str]]:
     """自动识别格式并解析，返回统一 schema 的记录列表。"""
     if re.search(r"^%\w+\s", text, re.M):
         return _parse_endnote(text)
     if re.search(r"^RT\s", text, re.M):
         return _parse_refworks(text)
+    if re.search(r"^\[\d+\]", text, re.M):
+        return _parse_gbt7714(text)
     if re.search(r"^(篇名|题名|标题)[:：]", text, re.M):
         return _parse_custom(text)
     return []
@@ -202,6 +275,7 @@ def import_records(text: str, source: str = "官网导入") -> dict[str, Any]:
             "下载链接": "",
             "摘要": p.get("摘要", ""),
             "关键词": p.get("关键词", ""),
+            "文献类型": p.get("文献类型", ""),
         })
 
     if fresh:
@@ -213,3 +287,32 @@ def import_records(text: str, source: str = "官网导入") -> dict[str, Any]:
         "skipped_dup": len(parsed) - len(fresh),
         "records_total": len(existing) + len(fresh),
     }
+
+
+def export_gbt7714(records: list[dict[str, Any]]) -> str:
+    """将本地记录导出为 GB/T 7714 格式引文文本。"""
+    lines: list[str] = []
+    for i, r in enumerate(records, 1):
+        doc_type = (r.get("文献类型") or "J").split("/")[0] or "J"
+        pub = (r.get("发表时间") or "").strip()
+        if doc_type == "N" and pub:  # 报纸保留完整日期
+            pub_part = pub
+        else:  # 其余取年份
+            m_year = re.match(r"(\d{4})", pub)
+            pub_part = m_year.group(1) if m_year else pub
+        authors = (r.get("作者") or "").strip()
+        authors_part = authors.replace("; ", ",").replace(";", ",") if authors else ""
+        pieces = []
+        if authors_part:
+            pieces.append(f"{authors_part}.")
+        pieces.append(f"{r.get('篇名') or ''}".strip() + f"[{doc_type}].")
+        journal = (r.get("刊名") or "").strip()
+        if journal:
+            pieces.append(f"{journal},{pub_part}." if pub_part else f"{journal}.")
+        elif pub_part:
+            pieces.append(f"{pub_part}.")
+        link = (r.get("链接") or "").strip()
+        if link:
+            pieces.append(f"{link}.")
+        lines.append(f"[{i}]" + " ".join(p.strip(" ") for p in pieces if p.strip(" .")))
+    return "\n".join(lines) + ("\n" if lines else "")
