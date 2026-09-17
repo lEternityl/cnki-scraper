@@ -237,18 +237,35 @@ $("#rec-export-btn").addEventListener("click", () => {
 });
 
 // ===================== 题录导入 ==========================================
+function renderImportResult(res) {
+  $("#import-result").innerHTML = `
+    <div class="item"><div class="k">识别题录</div><div class="v">${res.total_in_file}</div></div>
+    <div class="item"><div class="k">本次导入</div><div class="v">${res.imported}</div></div>
+    <div class="item"><div class="k">跳过重复</div><div class="v">${res.skipped_dup}</div></div>
+    <div class="item"><div class="k">本地总记录</div><div class="v">${res.records_total}</div></div>
+  `;
+}
+
 $("#import-btn").addEventListener("click", async () => {
   const file = $("#import-file").files[0];
   if (!file) { toast("请先选择文件", "error"); return; }
   try {
     const res = await apiPostForm("/api/records/import", "file", file);
     toast(`导入成功：新增 ${res.imported} 条，跳过重复 ${res.skipped_dup} 条`, "ok");
-    $("#import-result").innerHTML = `
-      <div class="item"><div class="k">文件中题录</div><div class="v">${res.total_in_file}</div></div>
-      <div class="item"><div class="k">本次导入</div><div class="v">${res.imported}</div></div>
-      <div class="item"><div class="k">跳过重复</div><div class="v">${res.skipped_dup}</div></div>
-      <div class="item"><div class="k">本地总记录</div><div class="v">${res.records_total}</div></div>
-    `;
+    renderImportResult(res);
+  } catch (e) {
+    toast("导入失败: " + e.message, "error");
+  }
+});
+
+$("#import-text-btn").addEventListener("click", async () => {
+  const text = $("#import-text").value.trim();
+  if (!text) { toast("请先粘贴题录文本", "error"); return; }
+  try {
+    const res = await apiPost("/api/records/import_text", { text });
+    toast(`导入成功：新增 ${res.imported} 条，跳过重复 ${res.skipped_dup} 条`, "ok");
+    renderImportResult(res);
+    $("#import-text").value = "";
   } catch (e) {
     toast("导入失败: " + e.message, "error");
   }

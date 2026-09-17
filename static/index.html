@@ -132,7 +132,18 @@
         </p>
         <div class="actions">
           <input id="import-file" type="file" accept=".txt,.enw,.ciw,.ris" />
-          <button id="import-btn" class="primary">导入</button>
+          <button id="import-btn" class="primary">上传导入</button>
+        </div>
+        <p class="muted" style="margin-top:14px;">或直接把导出的题录文本粘贴到下面导入：</p>
+        <textarea id="import-text" rows="10" style="width:100%; font-family:ui-monospace,monospace; font-size:12px;"
+          placeholder="粘贴 EndNote / Refworks / GB/T 7714 / 自定义格式的题录文本，例如：
+%0 Journal Article
+%T 篇名
+%A 作者
+%J 刊名
+%D 2026"></textarea>
+        <div class="actions" style="margin-top:8px;">
+          <button id="import-text-btn" class="primary">粘贴导入</button>
         </div>
         <div class="status-grid" id="import-result" style="margin-top:12px;"></div>
       </div>

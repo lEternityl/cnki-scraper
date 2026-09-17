@@ -63,7 +63,7 @@
 **使用步骤：**
 1. 在知网官网检索，勾选目标文献，点击「导出」；
 2. 选择 **EndNote / Refworks / GB/T 7714（导出参考文献）/ 自定义** 任一格式，下载 txt 文件（支持 UTF-8 与 GBK 编码）；
-3. 在本页签上传该文件，点击「导入」。
+3. 在本页签**上传该文件**导入，或把导出内容**直接粘贴**到文本框导入。
 
 **导入行为：** 自动识别四种导出格式并解析（篇名、作者、刊名、发表时间、关键词、摘要、链接；GB/T 7714 格式额外识别文献类型 [J]/[N]/[D]/[C]）；按「篇名+刊名」与本地已有记录去重；导入后自动重建全量 JSON，立即可在「文献检索」与「统计可视化」中使用。
 
@@ -188,7 +188,8 @@ python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000
 | GET | `/api/records` | 本地记录分页检索 |
 | GET | `/api/records/stats` | 本地记录聚合统计 |
 | GET | `/api/records/export` | 按检索条件导出本地记录为 GB/T 7714 引文文本 |
-| POST | `/api/records/import` | 导入官网导出的题录文件（EndNote/Refworks/GB-T-7714/自定义） |
+| POST | `/api/records/import` | 上传导入官网导出的题录文件（EndNote/Refworks/GB-T-7714/自定义） |
+| POST | `/api/records/import_text` | 直接粘贴题录文本导入 |
 | GET | `/api/search/fields` | 检索字段与来源类别元数据 |
 | POST | `/api/search` | 单页实时高级检索 |
 | POST | `/api/search/collect` | 启动后台采集任务 |

@@ -342,7 +342,25 @@ async def api_records_import(file: UploadFile = File(...)) -> Dict[str, Any]:
     if result["total_in_file"] == 0:
         raise HTTPException(
             status_code=400,
-            detail="未识别到任何题录，请确认导出格式为 EndNote / Refworks / 自定义",
+            detail="未识别到任何题录，请确认导出格式为 EndNote / Refworks / GB-T-7714 / 自定义",
+        )
+    return {"ok": True, **result}
+
+
+class ImportTextBody(BaseModel):
+    text: str
+
+
+@app.post("/api/records/import_text")
+async def api_records_import_text(body: ImportTextBody) -> Dict[str, Any]:
+    """直接粘贴题录文本导入（EndNote / Refworks / GB/T 7714 / 自定义格式）。"""
+    if not body.text.strip():
+        raise HTTPException(status_code=400, detail="粘贴内容为空")
+    result = import_records(body.text, source="官网导入")
+    if result["total_in_file"] == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="未识别到任何题录，请确认粘贴的是 EndNote / Refworks / GB-T-7714 / 自定义格式",
         )
     return {"ok": True, **result}
 
