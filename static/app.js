@@ -223,6 +223,24 @@ function renderPagination(total, page, size) {
 
 $("#rec-search-btn").addEventListener("click", () => { recPage = 1; searchRecords(); });
 
+// ===================== 题录导入 ==========================================
+$("#import-btn").addEventListener("click", async () => {
+  const file = $("#import-file").files[0];
+  if (!file) { toast("请先选择文件", "error"); return; }
+  try {
+    const res = await apiPostForm("/api/records/import", "file", file);
+    toast(`导入成功：新增 ${res.imported} 条，跳过重复 ${res.skipped_dup} 条`, "ok");
+    $("#import-result").innerHTML = `
+      <div class="item"><div class="k">文件中题录</div><div class="v">${res.total_in_file}</div></div>
+      <div class="item"><div class="k">本次导入</div><div class="v">${res.imported}</div></div>
+      <div class="item"><div class="k">跳过重复</div><div class="v">${res.skipped_dup}</div></div>
+      <div class="item"><div class="k">本地总记录</div><div class="v">${res.records_total}</div></div>
+    `;
+  } catch (e) {
+    toast("导入失败: " + e.message, "error");
+  }
+});
+
 // ===================== 高级检索（CNKI 实时）=============================
 let advFields = [];
 let advSrcCats = [];

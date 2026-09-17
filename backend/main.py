@@ -47,6 +47,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import storage
+from .importer import import_records
 from .scraper import (
     ScrapeParams, Scraper, BlockedError,
     SearchCollectParams, SearchCollector,
@@ -303,6 +304,25 @@ async def api_records(
 async def api_records_stats() -> Dict[str, Any]:
     records = storage.load_all_records()
     return storage.stats_aggregate(records)
+
+
+@app.post("/api/records/import")
+async def api_records_import(file: UploadFile = File(...)) -> Dict[str, Any]:
+    """导入知网官网导出的题录文件（EndNote / Refworks / 自定义格式）。"""
+    raw = await file.read()
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        text = raw.decode("gb18030", errors="replace")
+    if not text.strip():
+        raise HTTPException(status_code=400, detail="文件为空或无法解析")
+    result = import_records(text, source="官网导入")
+    if result["total_in_file"] == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="未识别到任何题录，请确认导出格式为 EndNote / Refworks / 自定义",
+        )
+    return {"ok": True, **result}
 
 
 # ===================== 高级检索（CNKI 实时） =============================

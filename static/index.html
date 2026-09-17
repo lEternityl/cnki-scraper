@@ -13,6 +13,7 @@
       <button class="tab active" data-tab="scrape">抓取任务</button>
       <button class="tab" data-tab="records">文献检索</button>
       <button class="tab" data-tab="advsearch">高级检索</button>
+      <button class="tab" data-tab="import">题录导入</button>
       <button class="tab" data-tab="stats">统计可视化</button>
       <button class="tab" data-tab="pdf">文献下载</button>
       <button class="tab" data-tab="cookie">Cookie 管理</button>
@@ -114,6 +115,25 @@
         </div>
         <div class="status-grid" id="adv-collect-status"></div>
         <pre id="adv-collect-log" class="log"></pre>
+      </div>
+    </section>
+
+    <!-- 题录导入 -->
+    <section id="tab-import" class="panel">
+      <div class="card">
+        <h2>题录导入 <span class="muted">（知网官网导出的文献列表）</span></h2>
+        <p class="muted">
+          本系统检索范围固定为「学术期刊」库；如需总库（含学位论文、会议论文等）的文献，
+          可在 <a class="link" href="https://kns.cnki.net" target="_blank">知网官网</a>
+          检索后勾选目标文献 → 导出 → 选择 <b>EndNote / Refworks / 自定义</b> 格式下载 txt 文件，
+          再上传到此处。导入的题录会自动去重（按篇名+刊名）并合并到本地记录，
+          之后可在「文献检索」「统计可视化」中使用。
+        </p>
+        <div class="actions">
+          <input id="import-file" type="file" accept=".txt,.enw,.ciw,.ris" />
+          <button id="import-btn" class="primary">导入</button>
+        </div>
+        <div class="status-grid" id="import-result" style="margin-top:12px;"></div>
       </div>
     </section>
 
