@@ -32,6 +32,32 @@ LogFn = Callable[[str], None]
 # 来自 kns8s 页面 common.min.js 的 createSign 函数。
 _SIGN_SALT = "t8b52yrsoyx66f35tk0p4nubrmrcglv5"
 
+# grid 行 dbname（来源库代码）→ 文献类型代码（与题录导入/前端 DOC_TYPE_MAP 一致）。
+DBNAME_TYPE_MAP = {
+    "CJFQ": "J",   # 学术期刊
+    "CAPJ": "J/OL",  # 网络首发
+    "CDFD": "D",   # 博士学位论文
+    "CMFD": "D",   # 硕士学位论文
+    "CCND": "N",   # 报纸
+    "IPFD": "C",   # 会议
+    "CISD": "C",
+    "SNAD": "R",   # 科技报告
+}
+
+# 总库（CROSSDB）包含的子库代码，与官网总库检索页 crossids 一致。
+CROSSDB_CODES = [
+    "YSTT4HG0",  # 学术期刊
+    "LSTPFY1C",  # 学位论文
+    "EMRPGLPA",  # 会议
+    "JUP3MUPD",  # 报纸
+    "MPMFIG1A",  # 年鉴
+    "WQ0UVIAA",  # 专利
+    "BLZOG7CK",  # 标准
+    "PWFIRAGL",  # 图书
+    "NLBO1Z6R",  # 成果
+    "NN3FJMUV",  # 科技报告
+]
+
 
 def _js_sin_str(x: float) -> str:
     """复刻 JS Math.sin(x).toString() 的最短小数表示。"""
@@ -226,16 +252,16 @@ def build_query_json(
     end_year: str | None = None,
     source_categories: list[str] | None = None,
 ) -> dict[str, Any]:
-    """通用高级检索 QueryJson 构造器（新版一框式口径，与官网检索结果一致）。
+    """通用高级检索 QueryJson 构造器（新版一框式口径，总库，与官网检索结果一致）。
 
     conditions: [{"field": "SU", "value": "数字经济", "logic": 0}]
       logic: 0=AND, 1=OR, 2=NOT（默认 AND）
     start_year/end_year: 出版年度范围；为空则不限。
     source_categories: ["CSI"] 等；为空则不限来源类别。
 
-    与旧版的差异：主题等条件用 Operator=TOPRANK + SearchType=2 的
-    一框式匹配（同官网 kns8s 页面），主题检索召回与官网完全一致；
-    时间范围（YE）与来源类别仍通过 ControlGroup 生效（已实测）。
+    与官网总库页一致：Resource=CROSSDB + 全部子库 KuaKuCode，
+    主题等条件用 Operator=TOPRANK + SearchType=2 的一框式匹配；
+    时间范围（YE）与来源类别仍通过 ControlGroup 生效。
     """
     field_title = {code: title for code, title, _ in FIELD_META}
     src_title = {code: title for code, title in SOURCE_CATEGORIES}
@@ -314,15 +340,15 @@ def build_query_json(
 
     return {
         "Platform": "",
-        "Resource": "JOURNAL",
-        "Classid": "YSTT4HG0",
+        "Resource": "CROSSDB",
+        "Classid": "WD0FTY92",
         "Products": "",
         "QNode": {"QGroup": qgroup},
         "ExScope": 1,
         "SimpTrad": "0",
         "SearchType": 2,
         "Rlang": "CHINESE",
-        "KuaKuCode": "",
+        "KuaKuCode": ",".join(CROSSDB_CODES),
         "Expands": {},
         "View": "changeDBCh",
         "SearchFrom": 1,
@@ -343,7 +369,7 @@ def build_aside(conditions, start_year, end_year, source_categories) -> str:
 
 
 def build_search_from(conditions, start_year, end_year, source_categories) -> str:
-    search_from = "资源范围：学术期刊;  中英文扩展;  "
+    search_from = "资源范围：总库;  中英文扩展;  "
     if start_year and end_year:
         search_from += f"时间范围：出版年度：{start_year} 到 {end_year},更新时间：不限;  "
     if source_categories:
@@ -1112,6 +1138,7 @@ class SearchCollector:
                         "发表时间": row.get("发表时间", ""),
                         "链接": row.get("链接", ""),
                         "下载链接": row.get("下载链接", ""),
+                        "文献类型": DBNAME_TYPE_MAP.get(row.get("dbname", ""), ""),
                         "摘要": "",
                         "关键词": "",
                     }
