@@ -129,11 +129,14 @@
             <button data-sort="DFR">下载</button>
             <button data-sort="ZH">综合</button>
           </div>
+          <span style="flex:1;"></span>
+          <span class="muted" id="adv-sel-count"></span>
+          <button id="adv-dl-selected" class="primary" disabled>下载选中</button>
         </div>
         <div class="table-wrap">
           <table id="adv-table">
             <thead><tr>
-              <th style="width:36px;"></th><th>题名</th><th>作者</th><th>来源</th>
+              <th style="width:52px;"><input type="checkbox" id="adv-check-all" title="全选本页" /></th><th>题名</th><th>作者</th><th>来源</th>
               <th>发表时间</th><th>数据库</th><th>被引</th><th>下载</th><th style="width:150px;">操作</th>
             </tr></thead>
             <tbody></tbody>

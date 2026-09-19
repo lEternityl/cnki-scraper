@@ -360,6 +360,7 @@ let advFields = [];
 let advSrcCats = [];
 let advPage = 1;
 let advCollectES = null;
+const advSelected = new Map();  // cid → {篇名, 发表时间, 下载链接}（跨页保留）
 
 async function refreshAdvMeta() {
   if (advFields.length) return;
@@ -448,15 +449,80 @@ async function advSearch() {
       if (r["下载链接"]) {
         btns.push(`<button class="ghost tiny adv-dl" data-title="${esc(r["篇名"] || "")}" data-time="${esc(r["发表时间"] || "")}" data-href="${esc(r["下载链接"])}">下载PDF</button>`);
       }
-      tr.innerHTML = `<td class="muted">${start + i}</td><td>${link}</td><td>${esc(r["作者"] || "")}</td><td>${esc(r["刊名"] || "")}</td><td>${esc(r["发表时间"] || "")}</td><td>${esc(r["数据库"] || "")}</td><td>${esc(r["被引"] || "")}</td><td>${esc(r["下载"] || "")}</td><td>${btns.join("")}</td>`;
+      const cid = r["cid"] || `${r["篇名"]}|${r["发表时间"]}`;
+      const checked = advSelected.has(cid) ? "checked" : "";
+      const canSel = r["下载链接"] ? "" : "disabled";
+      tr.innerHTML = `<td><input type="checkbox" class="adv-row-check" data-cid="${esc(cid)}" ${checked} ${canSel} title="${r["下载链接"] ? "" : "无下载链接"}" /> <span class="muted">${start + i}</span></td><td>${link}</td><td>${esc(r["作者"] || "")}</td><td>${esc(r["刊名"] || "")}</td><td>${esc(r["发表时间"] || "")}</td><td>${esc(r["数据库"] || "")}</td><td>${esc(r["被引"] || "")}</td><td>${esc(r["下载"] || "")}</td><td>${btns.join("")}</td>`;
       tbody.appendChild(tr);
     });
+    syncAdvCheckAll();
     $("#adv-meta").textContent = `${data.aside || ""} 共 ${data.total} 条，第 ${data.page}/${data.pages || 1} 页`;
     renderAdvPagination(data.total, data.page, data.page_size);
   } catch (e) {
     toast("检索失败: " + e.message, "error");
   }
 }
+
+// —— 高级检索多选（跨页保留）——
+function updateAdvSelCount() {
+  const n = advSelected.size;
+  $("#adv-sel-count").textContent = n ? `已选 ${n} 条` : "";
+  $("#adv-dl-selected").disabled = n === 0;
+  $("#adv-dl-selected").textContent = n ? `下载选中 (${n})` : "下载选中";
+}
+function syncAdvCheckAll() {
+  const boxes = $$("#adv-table .adv-row-check");
+  const selectable = boxes.filter(b => !b.disabled);
+  $("#adv-check-all").checked = selectable.length > 0
+    && selectable.every(b => b.checked);
+  updateAdvSelCount();
+}
+$("#adv-table").addEventListener("change", (e) => {
+  if (e.target.id === "adv-check-all") {
+    const on = e.target.checked;
+    $$("#adv-table .adv-row-check").forEach(b => {
+      if (b.disabled) return;
+      b.checked = on;
+      const cid = b.dataset.cid;
+      if (on) {
+        const row = b.closest("tr");
+        const dl = row.querySelector(".adv-dl");
+        if (dl) advSelected.set(cid, {
+          "篇名": dl.dataset.title, "发表时间": dl.dataset.time, "下载链接": dl.dataset.href,
+        });
+      } else advSelected.delete(cid);
+    });
+    updateAdvSelCount();
+    return;
+  }
+  if (!e.target.classList.contains("adv-row-check")) return;
+  const cid = e.target.dataset.cid;
+  if (e.target.checked) {
+    const dl = e.target.closest("tr").querySelector(".adv-dl");
+    if (dl) advSelected.set(cid, {
+      "篇名": dl.dataset.title, "发表时间": dl.dataset.time, "下载链接": dl.dataset.href,
+    });
+  } else advSelected.delete(cid);
+  updateAdvSelCount();
+});
+// 批量下载选中（串行 + 间隔，避免触发风控）
+$("#adv-dl-selected").addEventListener("click", async () => {
+  if (!advSelected.size) return;
+  const rows = Array.from(advSelected.values());
+  const btn = $("#adv-dl-selected");
+  btn.disabled = true;
+  let ok = 0, fail = 0, skip = 0;
+  for (let i = 0; i < rows.length; i++) {
+    btn.textContent = `下载中 ${i + 1}/${rows.length}...`;
+    try {
+      const res = await apiPost("/api/download/adv-row", rows[i]);
+      if (res.skipped) skip++; else ok++;
+    } catch (err) { fail++; }
+    if (i < rows.length - 1) await new Promise(r => setTimeout(r, 800));
+  }
+  updateAdvSelCount();
+  toast(`批量下载完成：成功 ${ok}，已存在 ${skip}，失败 ${fail}`, fail ? "error" : "ok");
+});
 
 // 高级检索行内：详情 / 下载 PDF
 document.addEventListener("click", async (e) => {
@@ -516,7 +582,12 @@ function renderAdvPagination(total, page, size) {
 }
 
 $("#adv-add-btn").addEventListener("click", addAdvCondition);
-$("#adv-search-btn").addEventListener("click", () => { advPage = 1; advSearch(); });
+$("#adv-search-btn").addEventListener("click", () => {
+  advPage = 1;
+  advSelected.clear();  // 新检索清空多选
+  updateAdvSelCount();
+  advSearch();
+});
 
 async function advCollectStart() {
   const conds = collectAdvConditions();
