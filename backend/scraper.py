@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import html
 import json
 import math
@@ -26,6 +27,32 @@ from bs4 import BeautifulSoup
 from . import storage
 
 LogFn = Callable[[str], None]
+
+# kns8s 新版检索（一框式 TOPRANK 口径）所需的请求签名盐，
+# 来自 kns8s 页面 common.min.js 的 createSign 函数。
+_SIGN_SALT = "t8b52yrsoyx66f35tk0p4nubrmrcglv5"
+
+
+def _js_sin_str(x: float) -> str:
+    """复刻 JS Math.sin(x).toString() 的最短小数表示。"""
+    s = repr(math.sin(x))
+    return re.sub(r"e([+-])0+(\d)", r"e\1\2", s)
+
+
+def sign_headers(client_id: str = "") -> dict[str, str]:
+    """生成 kns8s grid 请求的动态签名头（timestamp/nonce/signature/appID/ClientID）。"""
+    ts = int(time.time() * 1000)
+    nonce = _js_sin_str(ts)[6:]
+    signature = hashlib.md5(
+        f"{ts}{nonce}{_SIGN_SALT}{client_id}".encode("utf-8")
+    ).hexdigest()
+    return {
+        "timestamp": str(ts),
+        "nonce": nonce,
+        "signature": signature,
+        "appID": "LoginWap",
+        "ClientID": client_id,
+    }
 
 
 class BlockedError(RuntimeError):
@@ -199,49 +226,35 @@ def build_query_json(
     end_year: str | None = None,
     source_categories: list[str] | None = None,
 ) -> dict[str, Any]:
-    """通用高级检索 QueryJson 构造器。
+    """通用高级检索 QueryJson 构造器（新版一框式口径，与官网检索结果一致）。
 
     conditions: [{"field": "SU", "value": "数字经济", "logic": 0}]
       logic: 0=AND, 1=OR, 2=NOT（默认 AND）
     start_year/end_year: 出版年度范围；为空则不限。
     source_categories: ["CSI"] 等；为空则不限来源类别。
+
+    与旧版的差异：主题等条件用 Operator=TOPRANK + SearchType=2 的
+    一框式匹配（同官网 kns8s 页面），主题检索召回与官网完全一致；
+    时间范围（YE）与来源类别仍通过 ControlGroup 生效（已实测）。
     """
     field_title = {code: title for code, title, _ in FIELD_META}
     src_title = {code: title for code, title in SOURCE_CATEGORIES}
 
-    subject_groups: list[dict[str, Any]] = []
-    for idx, cond in enumerate(conditions, 1):
+    items: list[dict[str, Any]] = []
+    for idx, cond in enumerate(conditions):
         field = cond.get("field", "SU")
         value = (cond.get("value") or "").strip()
         if not value:
             continue
-        logic = int(cond.get("logic", LOGIC_AND))
+        logic = int(cond.get("logic", LOGIC_AND)) if idx > 0 else 0
         title = field_title.get(field, field)
-        tipkey = f"input[data-tipid=gradetxt-{idx}]"
-        subject_groups.append({
-            "Key": "Subject",
-            "Title": "",
+        items.append({
+            "Field": field,
+            "Value": value,
+            "Operator": "TOPRANK",
             "Logic": logic,
-            "Items": [],
-            "ChildItems": [
-                {
-                    "Key": tipkey,
-                    "Title": title,
-                    "Logic": 0,
-                    "Items": [
-                        {
-                            "Key": tipkey,
-                            "Title": title,
-                            "Logic": 0,
-                            "Field": field,
-                            "Operator": "DEFAULT",
-                            "Value": value,
-                            "Value2": "",
-                        }
-                    ],
-                    "ChildItems": [],
-                }
-            ],
+            "Vector": "",
+            "Title": title,
         })
 
     control_children: list[dict[str, Any]] = []
@@ -264,9 +277,9 @@ def build_query_json(
             "ChildItems": [],
         })
     if source_categories:
-        items = []
+        cat_items = []
         for i, code in enumerate(source_categories):
-            items.append({
+            cat_items.append({
                 "Key": i,
                 "Title": src_title.get(code, code),
                 "Logic": 1,
@@ -279,11 +292,17 @@ def build_query_json(
             "Key": ".extend-tit-checklist",
             "Title": "",
             "Logic": 0,
-            "Items": items,
+            "Items": cat_items,
             "ChildItems": [],
         })
 
-    qgroup = list(subject_groups)
+    qgroup: list[dict[str, Any]] = [{
+        "Key": "Subject",
+        "Title": "",
+        "Logic": 0,
+        "Items": items,
+        "ChildItems": [],
+    }]
     if control_children:
         qgroup.append({
             "Key": "ControlGroup",
@@ -297,10 +316,11 @@ def build_query_json(
         "Platform": "",
         "Resource": "JOURNAL",
         "Classid": "YSTT4HG0",
-        "Products": "CJFQ,CAPJ,ZHYX,CJTL",
+        "Products": "",
         "QNode": {"QGroup": qgroup},
-        "ExScope": "1",
-        "SearchType": 1,
+        "ExScope": 1,
+        "SimpTrad": "0",
+        "SearchType": 2,
         "Rlang": "CHINESE",
         "KuaKuCode": "",
         "Expands": {},
@@ -364,7 +384,8 @@ def search_grid(
     if not bool_search:
         data.pop("CurPage", None)
     response = post_with_retries(
-        session, f"{BASE}/kns8s/brief/grid", data, f"search grid page {page}", log
+        session, f"{BASE}/kns8s/brief/grid", data, f"search grid page {page}", log,
+        signed=True,
     )
     soup = BeautifulSoup(response.text, "html.parser")
     count_el = soup.select_one("#countPageDiv em")
@@ -554,11 +575,18 @@ def post_with_retries(
     log: LogFn,
     timeout: int = 45,
     retries: int = 3,
+    signed: bool = False,
 ) -> requests.Response:
     last_error: Exception | None = None
     for attempt in range(1, retries + 1):
         try:
-            response = session.post(url, data=data, timeout=timeout)
+            headers = None
+            if signed:
+                # 新版一框式口径需要动态签名头；Ecp_ClientId 取自 Cookie（可能为空，实测同样有效）
+                headers = sign_headers(
+                    session.cookies.get("Ecp_ClientId", "") or ""
+                )
+            response = session.post(url, data=data, headers=headers, timeout=timeout)
             check_blocked(response, context)
             if response.status_code >= 500:
                 raise RuntimeError(f"{context}: HTTP {response.status_code}")
