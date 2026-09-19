@@ -224,3 +224,12 @@ tbody tr.expanded { background: #f0f7ff; }
   flex-direction: row; align-items: center; gap: 4px; margin: 0;
   font-size: 13px; color: #374151;
 }
+
+/* 高级检索：排序按钮组 + 行内小按钮（仿官网 kns8s） */
+.sort-group { display: flex; gap: 6px; }
+.sort-group button {
+  padding: 4px 12px; border: 1px solid #d9dce3; background: #fff; color: #3f4452;
+  border-radius: 4px; cursor: pointer; font-size: 13px;
+}
+.sort-group button.active { background: #2f5ac6; border-color: #2f5ac6; color: #fff; }
+button.tiny { padding: 2px 8px; font-size: 12px; margin-right: 4px; }

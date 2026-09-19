@@ -45,17 +45,18 @@ DBNAME_TYPE_MAP = {
 }
 
 # 总库（CROSSDB）包含的子库代码，与官网总库检索页 crossids 一致。
+# 归属经实测确认（智慧应急检索各单库返回的来源类型）。
 CROSSDB_CODES = [
     "YSTT4HG0",  # 学术期刊
     "LSTPFY1C",  # 学位论文
-    "EMRPGLPA",  # 会议
-    "JUP3MUPD",  # 报纸
-    "MPMFIG1A",  # 年鉴
-    "WQ0UVIAA",  # 专利
-    "BLZOG7CK",  # 标准
-    "PWFIRAGL",  # 图书
-    "NLBO1Z6R",  # 成果
-    "NN3FJMUV",  # 科技报告
+    "JUP3MUPD",  # 会议
+    "MPMFIG1A",  # 报纸
+    "EMRPGLPA",  # 图书
+    "NN3FJMUV",  # 特色期刊
+    "BLZOG7CK",  # 科技成果
+    "WQ0UVIAA",  # 年鉴
+    "PWFIRAGL",  # 标准
+    "NLBO1Z6R",  # 专利
 ]
 
 
@@ -251,6 +252,7 @@ def build_query_json(
     start_year: str | None = None,
     end_year: str | None = None,
     source_categories: list[str] | None = None,
+    sub_dbs: list[str] | None = None,
 ) -> dict[str, Any]:
     """通用高级检索 QueryJson 构造器（新版一框式口径，总库，与官网检索结果一致）。
 
@@ -258,6 +260,7 @@ def build_query_json(
       logic: 0=AND, 1=OR, 2=NOT（默认 AND）
     start_year/end_year: 出版年度范围；为空则不限。
     source_categories: ["CSI"] 等；为空则不限来源类别。
+    sub_dbs: 子库代码多选筛选（CROSSDB_CODES 的子集）；为空/全选 = 总库全部子库。
 
     与官网总库页一致：Resource=CROSSDB + 全部子库 KuaKuCode，
     主题等条件用 Operator=TOPRANK + SearchType=2 的一框式匹配；
@@ -338,6 +341,7 @@ def build_query_json(
             "ChildItems": control_children,
         })
 
+    kua_ku = [c for c in (sub_dbs or []) if c in CROSSDB_CODES] or CROSSDB_CODES
     return {
         "Platform": "",
         "Resource": "CROSSDB",
@@ -348,7 +352,7 @@ def build_query_json(
         "SimpTrad": "0",
         "SearchType": 2,
         "Rlang": "CHINESE",
-        "KuaKuCode": ",".join(CROSSDB_CODES),
+        "KuaKuCode": ",".join(kua_ku),
         "Expands": {},
         "View": "changeDBCh",
         "SearchFrom": 1,
@@ -387,6 +391,8 @@ def search_grid(
     page: int,
     page_size: int,
     turnpage: str = "",
+    sort_field: str = "",
+    sort_type: str = "DESC",
     log: LogFn = lambda _msg: None,
 ) -> tuple[int, list[dict[str, str]], str]:
     """通用 grid 检索。返回 (总条数, 本页行, 下页 turnpage)。"""
@@ -396,8 +402,6 @@ def search_grid(
         "QueryJson": json.dumps(query, ensure_ascii=False, separators=(",", ":")),
         "pageNum": str(page),
         "pageSize": str(page_size),
-        "sortField": "FFD",
-        "sortType": "DESC",
         "dstyle": "listmode",
         "boolSortSearch": "false",
         "sentenceSearch": "false",
@@ -407,6 +411,11 @@ def search_grid(
         "CurPage": str(page),
         "turnpage": turnpage,
     }
+    # 排序："" = 相关度（官网默认，无 sortField）；PT=发表时间 CF=被引 DFR=下载 ZH=综合
+    if sort_field:
+        data["sortField"] = sort_field
+        data["sortType"] = sort_type or "DESC"
+        data["boolSortSearch"] = "true"
     if not bool_search:
         data.pop("CurPage", None)
     response = post_with_retries(
@@ -435,11 +444,18 @@ def search_grid(
         download_link = ""
         if dl_el and dl_el.get("href"):
             download_link = dl_el["href"]
+        # 数据库（来源类型中文，如"期刊"/"报纸"）；被引/下载计数（官网列表列）
+        data_el = tr.select_one("td.data span")
+        quote_el = tr.select_one("td.quote a.quoteCnt")
+        dlc_el = tr.select_one("td.download a.downloadCnt")
         rows.append({
             "cid": checkbox.get("value", ""),
             "篇名": compact_text(title_el.get_text(" ", strip=True)),
             "链接": title_el.get("href", ""),
             "下载链接": download_link,
+            "数据库": compact_text(data_el.get_text(" ", strip=True)) if data_el else "",
+            "被引": compact_text(quote_el.get_text(strip=True)) if quote_el else "",
+            "下载": compact_text(dlc_el.get_text(strip=True)) if dlc_el else "",
             "发表时间": compact_text(
                 tr.select_one("td.date").get_text(" ", strip=True)
                 if tr.select_one("td.date") else ""
@@ -1045,6 +1061,7 @@ class SearchCollectParams:
     start_year: str | None = None
     end_year: str | None = None
     source_categories: list[str] | None = None
+    sub_dbs: list[str] | None = None
     page_size: int = 50
     max_pages: int = 0
     min_sleep: float = 1.2
@@ -1093,7 +1110,8 @@ class SearchCollector:
             self._log("预热完成，开始检索采集。")
 
             query = build_query_json(
-                p.conditions, p.start_year, p.end_year, p.source_categories
+                p.conditions, p.start_year, p.end_year, p.source_categories,
+                p.sub_dbs,
             )
             aside = build_aside(p.conditions, p.start_year, p.end_year, p.source_categories)
             search_from = build_search_from(

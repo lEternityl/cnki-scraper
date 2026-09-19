@@ -370,10 +370,21 @@ async function refreshAdvMeta() {
     // 渲染来源类别复选框
     $("#adv-src-cats").innerHTML = advSrcCats.map(c =>
       `<label><input type="checkbox" value="${c.code}" /> ${esc(c.title)}</label>`).join("");
+    // 渲染数据库多选（默认全选 = 总库）
+    const dbs = await apiGet("/api/search/databases");
+    $("#adv-subdbs").innerHTML = dbs.databases.map(d =>
+      `<label><input type="checkbox" value="${d.code}" checked /> ${esc(d.name)}</label>`).join("");
     // 渲染第一个条件行
     $("#adv-conditions").innerHTML = "";
     addAdvCondition();
   } catch (e) { toast(e.message, "error"); }
+}
+
+function collectAdvSubDbs() {
+  const all = $$("#adv-subdbs input[type=checkbox]");
+  const checked = all.filter(c => c.checked);
+  if (!all.length || checked.length === all.length) return null;  // 全选/未初始化 = 总库
+  return checked.map(c => c.value);
 }
 
 function addAdvCondition() {
@@ -419,17 +430,25 @@ async function advSearch() {
     start_year: $("#adv-start-year").value.trim() || null,
     end_year: $("#adv-end-year").value.trim() || null,
     source_categories: collectAdvSrcCats(),
+    sub_dbs: collectAdvSubDbs(),
     page: advPage,
     page_size: parseInt($("#adv-page-size").value, 10) || 20,
+    sort_field: $("#adv-sort button.active").dataset.sort || "",
+    sort_type: "DESC",
   };
   try {
     const data = await apiPost("/api/search", body);
     const tbody = $("#adv-table tbody");
     tbody.innerHTML = "";
-    (data.items || []).forEach(r => {
+    const start = (data.page - 1) * data.page_size + 1;
+    (data.items || []).forEach((r, i) => {
       const tr = document.createElement("tr");
       const link = r["链接"] ? `<a class="link" href="${esc(r["链接"])}" target="_blank">${esc(r["篇名"] || "")}</a>` : esc(r["篇名"] || "");
-      tr.innerHTML = `<td>${link}</td><td>${esc(r["作者"] || "")}</td><td>${esc(r["刊名"] || "")}</td><td>${esc(r["发表时间"] || "")}</td>`;
+      const btns = [`<button class="ghost tiny adv-detail" data-href="${esc(r["链接"] || "")}" ${r["链接"] ? "" : "disabled"}>详情</button>`];
+      if (r["下载链接"]) {
+        btns.push(`<button class="ghost tiny adv-dl" data-title="${esc(r["篇名"] || "")}" data-time="${esc(r["发表时间"] || "")}" data-href="${esc(r["下载链接"])}">下载PDF</button>`);
+      }
+      tr.innerHTML = `<td class="muted">${start + i}</td><td>${link}</td><td>${esc(r["作者"] || "")}</td><td>${esc(r["刊名"] || "")}</td><td>${esc(r["发表时间"] || "")}</td><td>${esc(r["数据库"] || "")}</td><td>${esc(r["被引"] || "")}</td><td>${esc(r["下载"] || "")}</td><td>${btns.join("")}</td>`;
       tbody.appendChild(tr);
     });
     $("#adv-meta").textContent = `${data.aside || ""} 共 ${data.total} 条，第 ${data.page}/${data.pages || 1} 页`;
@@ -438,6 +457,46 @@ async function advSearch() {
     toast("检索失败: " + e.message, "error");
   }
 }
+
+// 高级检索行内：详情 / 下载 PDF
+document.addEventListener("click", async (e) => {
+  const detail = e.target.closest(".adv-detail");
+  if (detail && detail.dataset.href) { window.open(detail.dataset.href, "_blank"); return; }
+  const dl = e.target.closest(".adv-dl");
+  if (!dl) return;
+  dl.disabled = true;
+  const old = dl.textContent;
+  dl.textContent = "下载中...";
+  try {
+    const res = await apiPost("/api/download/adv-row", {
+      "篇名": dl.dataset.title, "发表时间": dl.dataset.time, "下载链接": dl.dataset.href,
+    });
+    dl.textContent = res.skipped ? "已存在" : "已下载";
+    toast(`已保存: ${res.file}`, "ok");
+  } catch (err) {
+    dl.textContent = "失败";
+    toast("下载失败: " + err.message, "error");
+  }
+  setTimeout(() => { dl.textContent = old; dl.disabled = false; }, 2500);
+});
+
+// 排序切换：切换后回到第 1 页重新检索
+$$("#adv-sort button").forEach(btn => btn.addEventListener("click", () => {
+  $$("#adv-sort button").forEach(b => b.classList.toggle("active", b === btn));
+  advPage = 1;
+  if (collectAdvConditions().length) advSearch();
+}));
+// 数据库多选：全选/清空切换
+$("#adv-subdb-all").addEventListener("click", () => {
+  const all = $$("#adv-subdbs input[type=checkbox]");
+  const allChecked = all.every(c => c.checked);
+  all.forEach(c => { c.checked = !allChecked; });
+});
+// 数据库勾选变化：回第 1 页自动重检（与官网筛选体验一致）
+$("#adv-subdbs").addEventListener("change", () => {
+  advPage = 1;
+  if (collectAdvConditions().length) advSearch();
+});
 function renderAdvPagination(total, page, size) {
   const pages = Math.ceil(total / size) || 1;
   const el = $("#adv-pagination");
@@ -467,6 +526,7 @@ async function advCollectStart() {
     start_year: $("#adv-start-year").value.trim() || null,
     end_year: $("#adv-end-year").value.trim() || null,
     source_categories: collectAdvSrcCats(),
+    sub_dbs: collectAdvSubDbs(),
     page_size: 50,
     max_pages: parseInt($("#adv-collect-max-pages").value, 10) || 0,
     min_sleep: parseFloat($("#adv-collect-min-sleep").value) || 1.2,

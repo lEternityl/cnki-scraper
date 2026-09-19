@@ -53,9 +53,9 @@ from .scraper import (
     ScrapeParams, Scraper, BlockedError,
     SearchCollectParams, SearchCollector,
     build_query_json, build_aside, build_search_from, search_grid,
-    load_session, FIELD_META, SOURCE_CATEGORIES,
+    load_session, FIELD_META, SOURCE_CATEGORIES, CROSSDB_CODES,
 )
-from .pdf_downloader import DownloadParams, PdfDownloader
+from .pdf_downloader import DownloadParams, PdfDownloader, safe_filename
 
 
 # --------------------------------------------------------------------------- #
@@ -142,6 +142,8 @@ class SearchSessionCache:
             "c": conds,
             "sy": body.start_year, "ey": body.end_year,
             "src": sorted(body.source_categories or []),
+            "dbs": sorted(body.sub_dbs or []),
+            "sort": (body.sort_field or "") + "|" + (body.sort_type or ""),
             "ps": body.page_size,
         }, ensure_ascii=False, sort_keys=True)
         return hashlib.md5(raw.encode("utf-8")).hexdigest()
@@ -159,6 +161,7 @@ class SearchSessionCache:
                 "query": build_query_json(
                     [c.model_dump() for c in body.conditions],
                     body.start_year, body.end_year, body.source_categories,
+                    body.sub_dbs,
                 ),
                 "aside": build_aside(
                     [c.model_dump() for c in body.conditions],
@@ -224,9 +227,10 @@ class SearchIn(BaseModel):
     start_year: Optional[str] = None
     end_year: Optional[str] = None
     source_categories: Optional[List[str]] = None
+    sub_dbs: Optional[List[str]] = None  # 子库多选筛选；空 = 总库全部子库
     page: int = 1
     page_size: int = 20
-    sort_field: str = "FFD"
+    sort_field: str = ""  # ""=相关度 PT=发表时间 CF=被引 DFR=下载 ZH=综合
     sort_type: str = "DESC"
 
 
@@ -235,10 +239,17 @@ class SearchCollectIn(BaseModel):
     start_year: Optional[str] = None
     end_year: Optional[str] = None
     source_categories: Optional[List[str]] = None
+    sub_dbs: Optional[List[str]] = None
     page_size: int = 50
     max_pages: int = 0
     min_sleep: float = 1.2
     max_sleep: float = 2.2
+
+
+class AdvRowDownloadIn(BaseModel):
+    篇名: str
+    发表时间: str = ""
+    下载链接: str = ""
 
 
 # --------------------------------------------------------------------------- #
@@ -411,7 +422,8 @@ async def api_search(body: SearchIn) -> Dict[str, Any]:
                 tp = turnpage_to_call.get(nxt, "")
                 total, rows, next_tp = search_grid(
                     session, query, aside, search_from, nxt, body.page_size,
-                    turnpage=tp, log=search_log,
+                    turnpage=tp, sort_field=body.sort_field,
+                    sort_type=body.sort_type, log=search_log,
                 )
                 rows_cache[nxt] = rows
                 turnpage_to_call[nxt + 1] = next_tp
@@ -449,6 +461,7 @@ async def api_search_collect(body: SearchCollectIn) -> Dict[str, Any]:
             start_year=body.start_year,
             end_year=body.end_year,
             source_categories=body.source_categories,
+            sub_dbs=body.sub_dbs,
             page_size=body.page_size,
             max_pages=body.max_pages,
             min_sleep=body.min_sleep,
@@ -466,6 +479,50 @@ async def api_search_collect(body: SearchCollectIn) -> Dict[str, Any]:
 async def api_search_collect_stop() -> Dict[str, Any]:
     search_collector.stop()
     return {"ok": True}
+
+
+@app.post("/api/download/adv-row")
+async def api_download_adv_row(body: AdvRowDownloadIn) -> Dict[str, Any]:
+    """下载高级检索实时结果中的单条记录（不要求已入库）。
+
+    复用 PDF 下载器的直连下载 + CAJ→PDF 转换；同步执行，几秒完成。
+    """
+    if not storage.COOKIE_FILE.exists():
+        raise HTTPException(status_code=400, detail="Cookie 不存在，请先上传")
+    if not body.下载链接:
+        raise HTTPException(status_code=400, detail="该记录无下载链接")
+    try:
+        session = load_session()
+        downloader = PdfDownloader(log_fn=lambda _m: None)
+        base_name = safe_filename(body.篇名, body.发表时间)
+        existing = [storage.PDF_DIR / (base_name + ext) for ext in (".caj", ".pdf")]
+        if any(p.exists() for p in existing):
+            return {"ok": True, "file": next(p.name for p in existing if p.exists()),
+                    "skipped": True}
+        downloader._download_direct(
+            session, body.下载链接, base_name, body.篇名, 1, 1
+        )
+        for ext in (".pdf", ".caj"):
+            f = storage.PDF_DIR / (base_name + ext)
+            if f.exists():
+                return {"ok": True, "file": f.name, "size": f.stat().st_size}
+        raise RuntimeError("下载完成但未找到文件")
+    except BlockedError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"{exc!r}")
+
+
+@app.get("/api/search/databases")
+async def api_search_databases() -> Dict[str, Any]:
+    """总库包含的子库（供前端筛选多选渲染）。"""
+    names = {
+        "YSTT4HG0": "学术期刊", "LSTPFY1C": "学位论文", "JUP3MUPD": "会议",
+        "MPMFIG1A": "报纸", "EMRPGLPA": "图书", "NN3FJMUV": "特色期刊",
+        "BLZOG7CK": "科技成果", "WQ0UVIAA": "年鉴", "PWFIRAGL": "标准",
+        "NLBO1Z6R": "专利",
+    }
+    return {"databases": [{"code": c, "name": names.get(c, c)} for c in CROSSDB_CODES]}
 
 
 @app.get("/api/search/collect/status")
