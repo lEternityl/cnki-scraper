@@ -4,7 +4,7 @@
 
 ## 系统总览
 
-启动后访问 http://127.0.0.1:8000 即可打开 Web 控制台。顶部导航栏提供五个功能模块，覆盖从数据采集到全文下载的完整流程。
+启动后访问 http://127.0.0.1:8000 即可打开 Web 控制台（云端部署地址见 [云端部署](#云端部署阿里云)）。顶部导航栏提供五个功能模块，覆盖从数据采集到全文下载的完整流程。
 
 ![系统主界面](docs/scrape.png)
 
@@ -166,6 +166,28 @@ python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000
 ```bash
 ./stop.sh
 ```
+
+## 云端部署（阿里云）
+
+系统已部署至阿里云 ECS（Alibaba Cloud Linux 3，北京地域），公网访问地址：
+
+**http://47.93.156.155:8000**
+
+部署要点：
+
+- 部署目录 `/opt/cnki-scraper`，Python 3.11 虚拟环境（`.venv`）
+- 以 systemd 服务 `cnki-scraper` 常驻运行，开机自启、崩溃自动重启
+- 安全组已放行 8000 端口；数据（题录 + 已下载 PDF）随部署同步
+
+服务器运维命令：
+
+```bash
+systemctl status cnki-scraper    # 查看服务状态
+systemctl restart cnki-scraper   # 重启服务
+journalctl -u cnki-scraper -f    # 实时查看日志
+```
+
+注意：云端的 CNKI Cookie 与本地独立，需在云端 Web 控制台的「Cookie 管理」页单独上传 `cnki_cookies.json`（Cookie 失效后检索/下载会提示重新上传）。
 
 ## 主要 API
 
