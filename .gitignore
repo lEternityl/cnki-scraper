@@ -23,4 +23,5 @@ _probe_*.html
 .DS_Store
 .idea/
 .vscode/
-.trae/
+.trae/*
+!.trae/skills/

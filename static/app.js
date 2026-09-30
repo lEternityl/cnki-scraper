@@ -447,7 +447,7 @@ async function advSearch() {
       const link = r["链接"] ? `<a class="link" href="${esc(r["链接"])}" target="_blank">${esc(r["篇名"] || "")}</a>` : esc(r["篇名"] || "");
       const btns = [`<button class="ghost tiny adv-detail" data-href="${esc(r["链接"] || "")}" ${r["链接"] ? "" : "disabled"}>详情</button>`];
       if (r["下载链接"]) {
-        btns.push(`<button class="ghost tiny adv-dl" data-title="${esc(r["篇名"] || "")}" data-time="${esc(r["发表时间"] || "")}" data-href="${esc(r["下载链接"])}">下载PDF</button>`);
+        btns.push(`<button class="ghost tiny adv-dl" data-title="${esc(r["篇名"] || "")}" data-time="${esc(r["发表时间"] || "")}" data-href="${esc(r["下载链接"])}" data-detail="${esc(r["链接"] || "")}">下载PDF</button>`);
       }
       const cid = r["cid"] || `${r["篇名"]}|${r["发表时间"]}`;
       const checked = advSelected.has(cid) ? "checked" : "";
@@ -489,6 +489,7 @@ $("#adv-table").addEventListener("change", (e) => {
         const dl = row.querySelector(".adv-dl");
         if (dl) advSelected.set(cid, {
           "篇名": dl.dataset.title, "发表时间": dl.dataset.time, "下载链接": dl.dataset.href,
+          "链接": dl.dataset.detail || "",
         });
       } else advSelected.delete(cid);
     });
@@ -501,6 +502,7 @@ $("#adv-table").addEventListener("change", (e) => {
     const dl = e.target.closest("tr").querySelector(".adv-dl");
     if (dl) advSelected.set(cid, {
       "篇名": dl.dataset.title, "发表时间": dl.dataset.time, "下载链接": dl.dataset.href,
+      "链接": dl.dataset.detail || "",
     });
   } else advSelected.delete(cid);
   updateAdvSelCount();
@@ -536,6 +538,7 @@ document.addEventListener("click", async (e) => {
   try {
     const res = await apiPost("/api/download/adv-row", {
       "篇名": dl.dataset.title, "发表时间": dl.dataset.time, "下载链接": dl.dataset.href,
+      "链接": dl.dataset.detail || "",
     });
     dl.textContent = res.skipped ? "已存在" : "已下载";
     toast(`已保存: ${res.file}`, "ok");

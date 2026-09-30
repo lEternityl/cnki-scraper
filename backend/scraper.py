@@ -543,11 +543,14 @@ def check_blocked(response: requests.Response, context: str) -> None:
     x_redirect = (response.headers.get("X-Redirect") or "").lower()
     blocked_by_url = "verify/home" in final_url
     blocked_by_page = "安全验证" in text or "<title>安全验证" in text
+    # "login--" 覆盖 bar/kns 等域名的登录跳转（如 login--cnki--net.share.sclib.cn）
     login_redirect = (
         "login.share.sclib.cn" in final_url
         or "sclib.cn/page/" in final_url
+        or "login--" in final_url
         or "login.share.sclib.cn" in x_redirect
         or "sclib.cn/page/" in x_redirect
+        or "login--" in x_redirect
     )
     empty_body_with_redirect = (len(text) == 0 and x_redirect)
     status_blocked = response.status_code in {401, 403, 429}
@@ -580,6 +583,8 @@ def check_blocked(response: requests.Response, context: str) -> None:
 def load_session() -> requests.Session:
     cookies = json.loads(storage.COOKIE_FILE.read_text(encoding="utf-8"))
     session = requests.Session()
+    # 绕过系统代理（ICUBE 魔改 requests 会注入 127.0.0.1:7890），直连 sclib 代理镜像
+    session.trust_env = False
     for cookie in cookies:
         domain = cookie.get("domain") or ""
         if "sclib.cn" not in domain:

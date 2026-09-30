@@ -250,6 +250,7 @@ class AdvRowDownloadIn(BaseModel):
     篇名: str
     发表时间: str = ""
     下载链接: str = ""
+    链接: str = ""  # 详情页链接；直连返回 CAJ 时用于尝试详情页『PDF下载』按钮
 
 
 # --------------------------------------------------------------------------- #
@@ -500,7 +501,8 @@ async def api_download_adv_row(body: AdvRowDownloadIn) -> Dict[str, Any]:
             return {"ok": True, "file": next(p.name for p in existing if p.exists()),
                     "skipped": True}
         downloader._download_direct(
-            session, body.下载链接, base_name, body.篇名, 1, 1
+            session, body.下载链接, base_name, body.篇名, 1, 1,
+            detail_link=body.链接,
         )
         for ext in (".pdf", ".caj"):
             f = storage.PDF_DIR / (base_name + ext)

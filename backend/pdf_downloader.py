@@ -184,7 +184,8 @@ class PdfDownloader:
                         dl_link = resolve_download_link(session, title, log=self._log)
                     if dl_link:
                         self._download_direct(
-                            session, dl_link, base_name, title, idx, total=len(params.records)
+                            session, dl_link, base_name, title, idx,
+                            total=len(params.records), detail_link=detail_link,
                         )
                     elif detail_link:
                         # 回退：访问详情页找 PDF（很可能触发验证码）
@@ -224,11 +225,14 @@ class PdfDownloader:
         title: str,
         idx: int,
         total: int,
+        detail_link: str = "",
     ) -> None:
         """直接 GET grid 行里的下载链接（bar/download/order），流式存盘。
 
         sclib.cn 代理会重定向到 docdown/fulltext/download，返回 CAJ/PDF。
         绕过详情页，不会触发 verify 验证码。
+        若返回 CAJ 且提供了详情页链接，会先尝试详情页的『PDF下载』按钮
+        拿原生 PDF，拿不到再落盘 CAJ 并转换。
         """
         self._log(f"[{idx}/{total}] 下载: {title[:40]}")
         # 兜底：grid 行的 href 可能是相对路径，补全为绝对地址
@@ -240,21 +244,25 @@ class PdfDownloader:
         check_blocked(resp, f"download {title}")
         ext = _ext_from_response(resp)
         target = storage.PDF_DIR / (base_name + ext)
-        ctype = (resp.headers.get("Content-Type") or "").lower()
-        # 非预期二进制时检查是否跳到验证页
-        if ("caj" not in ctype and "pdf" not in ctype
-                and "octet-stream" not in ctype
-                and not resp.headers.get("Content-Disposition", "")):
-            head = resp.raw.read(400, decode_content=True) if resp.raw else b""
-            try:
-                ht = head.decode("utf-8", errors="ignore").lower()
-            except Exception:
-                ht = ""
-            if "安全验证" in ht or "verify" in ht or "login" in ht:
-                raise BlockedError(f"download {title}: redirected to verification/login")
+        # 嗅探首个内容块：sclib 代理跳登录页/验证页时可能仍带 CAJ 的
+        # Content-Disposition 头，必须以实际内容为准拦截，避免把 HTML 存成 .caj
+        chunks = resp.iter_content(chunk_size=65536)
+        first = next(chunks, b"")
+        head = first[:400].decode("utf-8", errors="ignore").lower()
+        if ("安全验证" in head or "login" in head or "verify" in head
+                or "<!doctype html" in head or "<html" in head):
+            raise BlockedError(
+                f"download {title}: 下载链接返回登录/验证页"
+                "（下载通道要求登录：Cookie 已失效或该文献需账号权限）"
+            )
+        # 返回 CAJ 时优先尝试详情页的『PDF下载』按钮（能拿原生 PDF 就不存 CAJ）
+        if ext == ".caj" and detail_link:
+            if self._try_detail_pdf(session, detail_link, base_name, title):
+                return
         tmp = target.with_suffix(target.suffix + ".part")
         with tmp.open("wb") as fh:
-            for chunk in resp.iter_content(chunk_size=65536):
+            fh.write(first)
+            for chunk in chunks:
                 if chunk:
                     fh.write(chunk)
         tmp.replace(target)
@@ -270,6 +278,65 @@ class PdfDownloader:
                 )
                 target.unlink()  # 转换成功后删除 CAJ 原文件
             # 转换失败时保留 CAJ 文件，用户仍可手动处理
+
+    def _try_detail_pdf(
+        self,
+        session: requests.Session,
+        detail_link: str,
+        base_name: str,
+        title: str,
+    ) -> Path | None:
+        """访问文献详情页找『PDF下载』按钮并下载原生 PDF。
+
+        详情页必须走 sclib 代理域（原始 kns.cnki.net 域会触发验证码）。
+        成功返回 PDF 路径；无按钮/被拦截/格式不对时返回 None（调用方回退）。
+        """
+        url = detail_link
+        if url.startswith("https://kns.cnki.net"):
+            url = url.replace(
+                "https://kns.cnki.net", "https://kns--cnki--net.share.sclib.cn"
+            )
+        elif url.startswith("/"):
+            url = urljoin(BASE, url)
+        if not url.startswith("http"):
+            return None
+        try:
+            resp = session.get(url, timeout=45)
+            check_blocked(resp, f"detail {title}")
+            soup = BeautifulSoup(resp.text, "html.parser")
+            pdf_url = ""
+            for a in soup.select("a"):
+                if a.get_text(strip=True) == "PDF下载" and a.get("href"):
+                    pdf_url = urljoin(url, a["href"])
+                    break
+            if not pdf_url:
+                return None
+            dl = session.get(pdf_url, timeout=90, stream=True, allow_redirects=True)
+            check_blocked(dl, f"pdf {title}")
+            if _ext_from_response(dl) != ".pdf":
+                return None
+            chunks = dl.iter_content(chunk_size=65536)
+            first = next(chunks, b"")
+            head = first[:400].decode("utf-8", errors="ignore").lower()
+            if ("安全验证" in head or "login" in head or "verify" in head
+                    or "<!doctype html" in head or "<html" in head):
+                return None
+            target = storage.PDF_DIR / (base_name + ".pdf")
+            tmp = target.with_suffix(".pdf.part")
+            with tmp.open("wb") as fh:
+                fh.write(first)
+                for chunk in chunks:
+                    if chunk:
+                        fh.write(chunk)
+            tmp.replace(target)
+            self._log(
+                f"  [ok] saved {target.name} "
+                f"({target.stat().st_size // 1024} KB, 详情页 PDF)"
+            )
+            return target
+        except Exception as exc:
+            self._log(f"  [warn] 详情页 PDF 获取失败，回退默认下载: {exc}")
+            return None
 
     def _caj_to_pdf(self, caj_path: Path) -> Path | None:
         """把 CNKI 的 KDH/CAJ 文件转成标准 PDF。
